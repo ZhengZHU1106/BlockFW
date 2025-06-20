@@ -1,12 +1,12 @@
-from web3 import Web3
-from solcx import compile_standard, install_solc
 import json
-import os
+
+from solcx import compile_standard, install_solc
+from web3 import Web3
 
 install_solc('0.8.0')
 
 # 读取合约
-with open("../contracts/FirewallRules.sol", "r") as file:
+with open("../contracts/FirewallRules.sol", "r", encoding='utf-8') as file:
     source_code = file.read()
 
 compiled = compile_standard({
