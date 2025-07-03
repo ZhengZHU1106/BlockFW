@@ -2,7 +2,7 @@
 AI检测相关的API路由
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from typing import List, Dict, Any
 from datetime import datetime
 
@@ -14,6 +14,7 @@ from models.schemas import (
     ErrorResponse
 )
 from services.ai_detection_service_v2 import ai_detection_manager
+from services.ai_blockchain_integration import ai_blockchain_integration
 
 # 创建路由器
 router = APIRouter(
@@ -26,16 +27,23 @@ router = APIRouter(
 )
 
 @router.post("/single", response_model=DetectionResult)
-async def detect_single(request: DetectionRequest):
+async def detect_single(request: Request):
     """
     执行单次AI检测
     
-    - **features**: 28个网络流量特征（已预处理）
+    - **features**: 21维BNaT特征（支持混合类型）
     - **metadata**: 可选的元数据
     """
     try:
+        body = await request.json()
+        features = body.get("features")
+        metadata = body.get("metadata")
+
+        if not features or not isinstance(features, list) or len(features) != 21:
+            raise HTTPException(status_code=400, detail="特征列表必须是21个元素的有效列表")
+
         # 执行检测
-        result = ai_detection_manager.detect(request.features)
+        result = ai_detection_manager.detect(features)
         
         if not result.get('success', False):
             raise HTTPException(
@@ -49,8 +57,8 @@ async def detect_single(request: DetectionRequest):
             is_attack=result['is_attack'],
             predicted_label=result['predicted_label'],
             confidence=result['confidence'],
-            features_used=result.get('features_used', 28),
-            metadata=request.metadata
+            features_used=result.get('features_used', 21),
+            metadata=metadata
         )
         
     except HTTPException:
@@ -79,7 +87,7 @@ async def detect_batch(request: BatchDetectionRequest):
                     is_attack=result['is_attack'],
                     predicted_label=result['predicted_label'],
                     confidence=result['confidence'],
-                    features_used=result.get('features_used', 28),
+                    features_used=result.get('features_used', 21),
                     metadata={"batch_index": idx}
                 ))
         
@@ -89,6 +97,45 @@ async def detect_batch(request: BatchDetectionRequest):
         raise HTTPException(
             status_code=500,
             detail=f"批量检测错误: {str(e)}"
+        )
+
+@router.post("/enhanced", response_model=APIResponse)
+async def enhanced_detection(request: Request):
+    """
+    增强的AI检测，集成区块链联动
+    
+    - **features**: 21维BNaT特征
+    - **source_ip**: 源IP
+    - **destination_port**: 目标端口
+    """
+    try:
+        body = await request.json()
+        features = body.get("features")
+        source_ip = body.get("source_ip")
+        destination_port = body.get("destination_port")
+
+        if not features or not isinstance(features, list) or len(features) != 21:
+            raise HTTPException(status_code=400, detail="特征列表必须是21个元素的有效列表")
+
+        # 执行增强检测
+        result = ai_blockchain_integration.enhanced_detect(
+            features=features,
+            source_ip=source_ip,
+            destination_port=destination_port
+        )
+        
+        return APIResponse(
+            success=True,
+            data=result,
+            message="增强检测完成"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"增强检测服务错误: {str(e)}"
         )
 
 @router.get("/statistics")
@@ -163,9 +210,12 @@ async def test_detection():
     """测试检测功能（使用随机特征）"""
     try:
         import numpy as np
-        # 生成21个随机特征（BNaT格式）
-        random_features = np.random.random(21).tolist()
-        
+        # 生成21个随机特征（BNaT格式），模拟混合类型
+        random_features = np.random.rand(18).tolist()  # 18 numerical
+        random_features.insert(1, 'tcp')
+        random_features.insert(2, 'http')
+        random_features.insert(5, 'SF')
+
         result = ai_detection_manager.detect(random_features)
         
         if not result.get('success', False):
@@ -193,7 +243,7 @@ async def get_feature_info():
     """获取BNaT特征信息和格式说明"""
     try:
         # 获取预处理器的特征信息
-        if ai_detection_manager.has_preprocessor:
+        if hasattr(ai_detection_manager, 'preprocessor') and ai_detection_manager.preprocessor:
             feature_info = ai_detection_manager.preprocessor.get_feature_info()
         else:
             feature_info = {
@@ -205,51 +255,17 @@ async def get_feature_info():
         # 添加使用示例
         feature_info['usage_example'] = {
             'normal_connection': [
-                0.0,      # duration
-                'tcp',    # protocol_type
-                'http',   # service
-                181.0,    # src_bytes
-                5450.0,   # dst_bytes
-                'SF',     # flag
-                0,        # land
-                0,        # wrong_fragment
-                0,        # urgent
-                0,        # hot
-                0,        # num_failed_logins
-                1,        # logged_in
-                0,        # num_compromised
-                0,        # root_shell
-                0,        # su_attempted
-                0,        # num_root
-                0,        # num_file_creations
-                0,        # num_shells
-                0,        # num_access_files
-                0,        # num_outbound_cmds
-                0         # is_host_login
+                0.0, 'tcp', 'http', 181.0, 5450.0, 'SF', 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0
             ]
         }
         
         feature_info['feature_descriptions'] = [
-            'duration: 连接持续时间',
-            'protocol_type: 协议类型 (tcp/udp/icmp)',
-            'service: 服务类型 (http/ftp/ssh等)',
-            'src_bytes: 源字节数',
-            'dst_bytes: 目标字节数',
-            'flag: 连接标志 (SF/S0/REJ等)',
-            'land: 是否land攻击 (0/1)',
-            'wrong_fragment: 错误片段数',
-            'urgent: 紧急数据包数',
-            'hot: 热点指标数',
-            'num_failed_logins: 失败登录次数',
-            'logged_in: 是否成功登录 (0/1)',
-            'num_compromised: 被入侵指标数',
-            'root_shell: 是否获得root shell (0/1)',
-            'su_attempted: 是否尝试su (0/1)',
-            'num_root: root访问次数',
-            'num_file_creations: 文件创建次数',
-            'num_shells: shell获取次数',
-            'num_access_files: 访问控制文件次数',
-            'num_outbound_cmds: 出站命令次数',
+            'duration: 连接持续时间', 'protocol_type: 协议类型 (tcp/udp/icmp)', 'service: 服务类型 (http/ftp/ssh等)',
+            'src_bytes: 源字节数', 'dst_bytes: 目标字节数', 'flag: 连接标志 (SF/S0/REJ等)', 'land: 是否land攻击 (0/1)',
+            'wrong_fragment: 错误片段数', 'urgent: 紧急数据包数', 'hot: 热点指标数', 'num_failed_logins: 失败登录次数',
+            'logged_in: 是否成功登录 (0/1)', 'num_compromised: 被入侵指标数', 'root_shell: 是否获得root shell (0/1)',
+            'su_attempted: 是否尝试su (0/1)', 'num_root: root访问次数', 'num_file_creations: 文件创建次数',
+            'num_shells: shell获取次数', 'num_access_files: 访问控制文件次数', 'num_outbound_cmds: 出站命令次数',
             'is_host_login: 是否主机登录 (0/1)'
         ]
         
@@ -258,9 +274,82 @@ async def get_feature_info():
             data=feature_info,
             message="特征信息获取成功"
         )
-        
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"获取特征信息失败: {str(e)}"
+        )
+
+@router.get("/integration/stats")
+async def get_integration_statistics():
+    """获取AI-区块链集成统计信息"""
+    try:
+        stats = ai_blockchain_integration.get_integration_statistics()
+        return APIResponse(
+            success=True,
+            data=stats,
+            message="集成统计信息获取成功"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"获取集成统计信息失败: {str(e)}"
+        )
+
+@router.get("/attack-history")
+async def get_attack_history(source_ip: str = None, limit: int = 50):
+    """获取指定IP的攻击历史"""
+    try:
+        history = ai_blockchain_integration.get_attack_history(source_ip=source_ip, limit=limit)
+        return APIResponse(
+            success=True,
+            data=history,
+            message="攻击历史获取成功"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"获取攻击历史失败: {str(e)}"
+        )
+
+@router.post("/integration/configure")
+async def configure_integration(
+    auto_block: bool = None,
+    auto_pattern: bool = None, 
+    attack_threshold: float = None,
+    count_threshold: int = None
+):
+    """配置AI-区块链集成参数"""
+    try:
+        config = ai_blockchain_integration.configure_auto_actions(
+            auto_block=auto_block,
+            auto_pattern=auto_pattern,
+            attack_threshold=attack_threshold,
+            count_threshold=count_threshold
+        )
+        return APIResponse(
+            success=True,
+            data=config,
+            message="集成配置更新成功"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"配置失败: {str(e)}"
+        )
+
+@router.post("/attack-history/clear")
+async def clear_attack_history(source_ip: str = None):
+    """清除指定IP或所有攻击历史"""
+    try:
+        ai_blockchain_integration.clear_attack_history(source_ip=source_ip)
+        message = f"IP {source_ip} 的攻击历史已清除" if source_ip else "所有攻击历史已清除"
+        return APIResponse(
+            success=True,
+            message=message
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"清除历史失败: {str(e)}"
         )

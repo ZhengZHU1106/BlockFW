@@ -15,7 +15,7 @@ import sys
 # sys.path.append(project_root)
 
 # 导入路由
-from api import detection
+from api import detection, blockchain
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -68,18 +68,20 @@ async def api_info():
         "components": {
             "ai_detection": "XGBoost模型已准备",
             "smart_contract": "FirewallRules.sol已部署",
-            "backend_api": "FastAPI开发中"
+            "backend_api": "FastAPI步骤3开发中",
+            "blockchain_service": "区块链交互服务已集成"
         },
         "endpoints": {
             "health": "/health",
             "info": "/api/info",
             "detection": "/api/detection/* (已实现)",
-            "blockchain": "/api/blockchain/* (开发中)"
+            "blockchain": "/api/blockchain/* (已实现)"
         }
     }
 
 # 包含路由
 app.include_router(detection.router)
+app.include_router(blockchain.router)
 
 if __name__ == "__main__":
     print("🚀 启动 BlockFW 后端API服务...")

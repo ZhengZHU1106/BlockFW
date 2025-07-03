@@ -1,5 +1,5 @@
 {
-  "address": "0xcf2C99d4fA6e95D41d8727b3343fEa5C51F506ce",
+  "address": "0xD7300DF8DBE5dD22AeCECceCCb9BD6b51bf1347d",
   "abi": [
     {
       "inputs": [],
@@ -400,5 +400,8 @@
       "stateMutability": "view",
       "type": "function"
     }
-  ]
+  ],
+  "deployed_at": "2025-07-03T16:54:32.498564",
+  "deployer": "0xA7c35d444d8f645790D096d8D12c21299257A8D0",
+  "network": "Ganache Local"
 }

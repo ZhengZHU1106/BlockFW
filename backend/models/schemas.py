@@ -7,12 +7,14 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any, Union
 from datetime import datetime
 from enum import Enum
+from pydantic import validator
 
 class DetectionStatus(str, Enum):
     """检测状态枚举"""
     NORMAL = "normal"
     SUSPICIOUS = "suspicious"
     ATTACK = "attack"
+    SIMULATED = "simulated"
 
 class BlockchainStatus(str, Enum):
     """区块链操作状态枚举"""
@@ -23,12 +25,24 @@ class BlockchainStatus(str, Enum):
 # === AI检测相关模型 ===
 
 class DetectionRequest(BaseModel):
-    """AI检测请求模型（21维BNaT特征）"""
-    features: List[float] = Field(..., description="网络流量特征向量（21维BNaT特征）", min_items=21, max_items=21)
+    """单次检测请求模型"""
+    features: List[Union[str, float, int]] = Field(
+        ...,
+        min_items=21,
+        max_items=21,
+        description="21维BNaT网络流量特征，支持字符串和数值混合",
+        example=[0, 'tcp', 'http', 408, 0, 'OTH', 14, 13, 0, 0.64, 0.36, 0, 0.31, 14, 13, 0.64, 0.36, 0.21, 0, 0.31, 0]
+    )
     source_ip: Optional[str] = Field(None, description="源IP地址")
     destination_port: Optional[int] = Field(None, description="目标端口")
     protocol: Optional[str] = Field(None, description="协议类型")
-    metadata: Optional[Dict[str, Any]] = Field(None, description="额外元数据")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="可选的元数据")
+
+    @validator('features')
+    def validate_features_length(cls, v):
+        if len(v) != 21:
+            raise ValueError('特征列表必须包含21个元素')
+        return v
 
 class DetectionResult(BaseModel):
     """AI检测结果模型"""
@@ -45,8 +59,12 @@ class DetectionResult(BaseModel):
 
 class BatchDetectionRequest(BaseModel):
     """批量检测请求模型"""
-    features_list: List[List[float]] = Field(..., description="批量特征向量列表（每个包含21个特征）")
+    features_list: List[List[Union[str, float, int]]] = Field(
+        ...,
+        description="多个21维BNaT特征向量的列表"
+    )
     batch_id: Optional[str] = Field(None, description="批次ID")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="可选的元数据")
 
 class BatchDetectionResult(BaseModel):
     """批量检测结果模型"""
@@ -56,6 +74,27 @@ class BatchDetectionResult(BaseModel):
     normal_count: int = Field(..., description="正常数量")
     results: List[DetectionResult] = Field(..., description="详细结果列表")
     summary: Dict[str, Any] = Field(..., description="汇总统计")
+    success: bool
+
+class EnhancedDetectionRequest(BaseModel):
+    """增强检测请求模型"""
+    features: List[Union[str, float, int]] = Field(
+        ...,
+        description="21维BNaT网络流量特征",
+        example=[
+            0, 'tcp', 'ssh', 5, 0, 'S0', 100, 100, 1.0, 0, 0, 
+            1.0, 0, 255, 255, 1, 0, 0.05, 1, 0, 1
+        ]
+    )
+    source_ip: Optional[str] = Field("192.168.1.100", description="源IP地址")
+    destination_port: Optional[int] = Field(22, description="目标端口")
+    auto_action: bool = Field(True, description="是否启用自动联动")
+
+    @validator('features')
+    def validate_features_length(cls, v):
+        if len(v) != 21:
+            raise ValueError('特征列表必须包含21个元素')
+        return v
 
 # === 区块链相关模型 ===
 
@@ -123,21 +162,21 @@ class ContractInfo(BaseModel):
     detection_threshold: int = Field(..., description="检测阈值")
     blocked_ports_count: int = Field(..., description="已封锁端口数量")
     attack_patterns_count: int = Field(..., description="攻击模式数量")
+    """检测阈值设置请求模型"""
+    threshold: int = Field(..., ge=0)
 
 # === 通用响应模型 ===
 
 class APIResponse(BaseModel):
     """通用API响应模型"""
-    success: bool = Field(..., description="操作是否成功")
-    message: str = Field(..., description="响应消息")
-    data: Optional[Any] = Field(None, description="响应数据")
+    success: bool = True
+    message: Optional[str] = None
+    data: Optional[Any] = None
     timestamp: datetime = Field(default_factory=datetime.now)
-    error_code: Optional[str] = Field(None, description="错误代码")
+    error_code: Optional[int] = None
 
 class ErrorResponse(BaseModel):
-    """错误响应模型"""
-    success: bool = Field(False, description="操作失败")
-    error: str = Field(..., description="错误信息")
-    error_code: str = Field(..., description="错误代码")
-    timestamp: datetime = Field(default_factory=datetime.now)
-    details: Optional[Dict[str, Any]] = Field(None, description="错误详情") 
+    """通用错误响应模型"""
+    success: bool = False
+    error: str
+    details: Optional[Any] = None 
